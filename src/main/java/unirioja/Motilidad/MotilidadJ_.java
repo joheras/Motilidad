@@ -196,6 +196,32 @@ public class MotilidadJ_ implements Command {
 				} else {
 					rm.select(1);
 					rm.runCommand(imp2, "Delete");
+					ImagePlus imp3 = imp2.duplicate();
+					
+					// Performing some cleaning
+					Roi initRoi = rm.getRoi(0);
+					rm.select(0);
+					imp3.setRoi(initRoi);
+					IJ.run(imp3, "Select Bounding Box", "");
+					Roi box = imp3.getRoi();
+					IJ.run(imp3, "Median...", "radius=5");
+					IJ.run(imp3, "Enhance Contrast", "saturated=0.35");
+					IJ.setAutoThreshold(imp3, "MinError");
+					IJ.run(imp3, "Convert to Mask", "");
+					imp3.setRoi(box);
+					IJ.setBackgroundColor(0, 0, 0);
+					IJ.run(imp3, "Clear Outside", "");
+					rm.select(0);
+					rm.runCommand(imp3, "Delete");
+					IJ.run(imp3, "Analyze Particles...", "add");
+					keepBiggestROI(rm);
+					rm.addRoi(initRoi);
+					rm.setSelectedIndexes(new int[] { 0, 1 });
+					rm.runCommand(imp3, "AND");
+					rm.addRoi(imp3.getRoi());
+					rm.setSelectedIndexes(new int[] { 0, 1 });
+					rm.runCommand(imp3, "Delete");
+					
 				}
 			}else {
 				System.out.println(is.mean);
