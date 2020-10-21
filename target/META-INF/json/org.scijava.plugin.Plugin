@@ -1,1 +1,1 @@
-{"class":"classes.unirioja.Motilidad.MotilidadJ_","values":{"headless":true,"menuPath":"Plugins>Motilidad","type":"org.scijava.command.Command"}}
+{"class":"classes.unirioja.Motilidad.CleanJ_","values":{"headless":true,"menuPath":"Plugins>Motilidad>Clean","type":"org.scijava.command.Command"}}{"class":"classes.unirioja.Motilidad.MotilidadJ_","values":{"headless":true,"menuPath":"Plugins>Motilidad>Main","type":"org.scijava.command.Command"}}
