@@ -22,7 +22,7 @@ import ij.gui.Roi;
 import ij.io.DirectoryChooser;
 import ij.plugin.frame.RoiManager;
 
-@Plugin(type = Command.class, headless = true, menuPath = "Plugins>Motilidad>Clean")
+//@Plugin(type = Command.class, headless = true, menuPath = "Plugins>Motilidad>Clean")
 public class CleanJ_ implements Command {
 
 	public void run() {

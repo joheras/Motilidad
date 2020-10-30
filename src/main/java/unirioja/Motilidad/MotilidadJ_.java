@@ -20,9 +20,11 @@ import org.scijava.plugin.Plugin;
 
 import ij.IJ;
 import ij.ImagePlus;
+import ij.WindowManager;
 import ij.gui.OvalRoi;
 import ij.gui.Roi;
 import ij.io.DirectoryChooser;
+import ij.measure.Measurements;
 import ij.measure.ResultsTable;
 import ij.plugin.ImageCalculator;
 import ij.plugin.frame.RoiManager;
@@ -36,7 +38,11 @@ public class MotilidadJ_ implements Command {
 
 	public void run() {
 
-		List<String> files = searchFiles();
+		// Set the measurements that we want to obtain
+		IJ.run("Set Measurements...",
+				"area mean standard min shape centroid feret's median kurtosis redirect=None decimal=3");
+
+		List<String> files = Utils.searchFiles();
 		String dir = files.get(0);
 		// Create save directory
 		new File(dir + "/preds").mkdir();
@@ -68,6 +74,7 @@ public class MotilidadJ_ implements Command {
 			 * Roi r1 = interestingRegion(name); imp = detect(name, r1);// ,r1
 			 */
 
+			// 1. We first crop the image.
 			imp = cropImage(name);
 			imp = detectImageSimple(imp);
 			OvalRoi r1 = new OvalRoi(55, 45, 910, 910);
@@ -98,6 +105,7 @@ public class MotilidadJ_ implements Command {
 		imp.setRoi(3, 4, 93, 71);
 		ImageStatistics is = imp.getStatistics();
 		imp.deleteRoi();
+		IJ.run(imp, "Median...", "radius=3");
 		double m = is.mean;
 		if (m < 2000) {
 			IJ.run(imp, "8-bit", "");
@@ -136,85 +144,6 @@ public class MotilidadJ_ implements Command {
 
 	}
 
-	private Roi interestingRegion(String path) {
-		ImagePlus imp = IJ.openImage(path);
-
-		imp = IJ.getImage();
-		imp.hide();
-		// ImagePlus imp2 = imp.duplicate();
-		imp.setRoi(3, 4, 93, 71);
-		ImageStatistics is = imp.getStatistics();
-		imp.deleteRoi();
-
-		if (is.mean < 2000) {
-			IJ.setAutoThreshold(imp, "MaxEntropy dark");
-			isDark = true;
-		} else {
-			IJ.setAutoThreshold(imp, "Default");
-			IJ.setRawThreshold(imp, 0, 100, null);
-			isDark = false;
-		}
-		IJ.run(imp, "Convert to Mask", "");
-		IJ.run(imp, "Fit Circle to Image", "threshold=5");
-		IJ.setBackgroundColor(0, 0, 0);
-		IJ.run(imp, "Clear", "slice");
-		IJ.run(imp, "Fit Circle to Image", "threshold=5");
-		while (getArea(imp.getRoi().getPolygon()) < 650000) {
-			IJ.setBackgroundColor(0, 0, 0);
-			IJ.run(imp, "Clear", "slice");
-			IJ.run(imp, "Fit Circle to Image", "threshold=5");
-		}
-
-		OvalRoi r = (OvalRoi) imp.getRoi();
-		OvalRoi r1 = new OvalRoi(r.getXBase() + 25, r.getYBase() + 25, r.getFloatWidth() - 50, r.getFloatHeight() - 50);
-		// imp.setRoi(r1);
-		RoiManager rm = RoiManager.getRoiManager();
-		if (rm == null) {
-			rm = new RoiManager();
-		}
-		rm.setVisible(false);
-		rm.addRoi(r1);
-		imp.changes = false;
-		imp.close();
-		return r1;
-
-	}
-
-	private static List<String> searchFiles() {
-
-		List<String> result = new ArrayList<String>();
-
-		// We ask the user for a directory with nd2 images.
-		DirectoryChooser dc = new DirectoryChooser("Select the folder containing the jpg images");
-		String dir = dc.getDirectory();
-
-		// We store the list of tiff files in the result list.
-		File folder = new File(dir);
-
-		search(".*1sc", folder, result);
-
-		Collections.sort(result);
-		result.add(0, dir);
-		return result;
-
-	}
-
-	public static void search(final String pattern, final File folder, List<String> result) {
-		for (final File f : folder.listFiles()) {
-
-			if (f.isDirectory()) {
-				search(pattern, f, result);
-			}
-
-			if (f.isFile()) {
-				if (f.getName().matches(pattern) && !f.getName().contains("pred")) {
-					result.add(f.getAbsolutePath());
-				}
-			}
-
-		}
-	}
-
 	private void processOutput(ImagePlus imp2, String dir, String path, Roi r) {
 		String name = path.substring(path.lastIndexOf("/") + 1, path.lastIndexOf("."));
 
@@ -230,53 +159,41 @@ public class MotilidadJ_ implements Command {
 
 			ImageStatistics is;
 
-			keepBiggestROI(rm);
-			imp2.setRoi(rm.getRoi(0));
-			IJ.run(imp2, "Fit Spline", "");
-			/*
-			 * getCentroid(imp2.getProcessor(),rm.getRoi(0)); double x1 = xCentroid; double
-			 * y1 = yCentroid;
-			 */
-			rm.addRoi(imp2.getRoi());
-			rm.select(0);
-			rm.runCommand(imp2, "Delete");
+			Utils.keepBiggestROI(rm);
+			if (rm.getRoisAsArray().length > 0) {
+				imp2.setRoi(rm.getRoi(0));
+				IJ.run(imp2, "Fit Spline", "");
+				/*
+				 * getCentroid(imp2.getProcessor(),rm.getRoi(0)); double x1 = xCentroid; double
+				 * y1 = yCentroid;
+				 */
+				rm.addRoi(imp2.getRoi());
+				rm.select(0);
+				rm.runCommand(imp2, "Delete");
 
-			rm.addRoi(r);
-			rm.setSelectedIndexes(new int[] { 0, 1 });
-			rm.runCommand(imp2, "XOR");
+				rm.addRoi(r);
+				rm.setSelectedIndexes(new int[] { 0, 1 });
+				rm.runCommand(imp2, "XOR");
 
-			is = imp2.getStatistics();
-			rm.select(-1);
+				is = imp2.getStatistics();
+				rm.select(-1);
 
-			if (!isDark) {
+				if (!isDark) {
 
-				if (is.mean < 1900) {
-					rm.select(0);
-					rm.runCommand(imp2, "Delete");
+					if (is.mean < 1900) {
+						rm.select(0);
+						rm.runCommand(imp2, "Delete");
+					} else {
+						rm.select(1);
+						rm.runCommand(imp2, "Delete");
+					}
 				} else {
 					rm.select(1);
 					rm.runCommand(imp2, "Delete");
 				}
-
-				/*
-				 * ImagePlus imp3 = imp2.duplicate();
-				 * 
-				 * // Performing some cleaning Roi initRoi = rm.getRoi(0); rm.select(0);
-				 * imp3.setRoi(initRoi); IJ.run(imp3, "Select Bounding Box", ""); Roi box =
-				 * imp3.getRoi(); IJ.run(imp3, "Median...", "radius=5"); IJ.run(imp3,
-				 * "Enhance Contrast", "saturated=0.35"); IJ.setAutoThreshold(imp3, "MinError");
-				 * IJ.run(imp3, "Convert to Mask", ""); imp3.setRoi(box);
-				 * IJ.setBackgroundColor(0, 0, 0); IJ.run(imp3, "Clear Outside", "");
-				 * rm.select(0); rm.runCommand(imp3, "Delete"); IJ.run(imp3,
-				 * "Analyze Particles...", "add"); keepBiggestROI(rm); rm.addRoi(initRoi);
-				 * rm.setSelectedIndexes(new int[] { 0, 1 }); rm.runCommand(imp3, "AND");
-				 * rm.addRoi(imp3.getRoi()); rm.setSelectedIndexes(new int[] { 0, 1 });
-				 * rm.runCommand(imp3, "Delete");
-				 */
 			} else {
-				System.out.println("Dark");
+				rm.addRoi(r);
 			}
-
 			/*
 			 * rm.select(1); rm.runCommand(imp2, "Delete");
 			 */
@@ -301,233 +218,123 @@ public class MotilidadJ_ implements Command {
 		imp2.setRoi(r);
 
 		IJ.run(imp2, "Median...", "radius=13");
-		IJ.run(imp2, "Variance...", "radius=1");
+
+		ImagePlus imp3 = imp2.duplicate();
+		// IJ.run(imp2, "Variance...", "radius=1");
+		IJ.run(imp2, "Find Edges", "");
+
 		IJ.run(imp2, "8-bit", "");
 		IJ.setAutoThreshold(imp2, "MinError dark");
-		/*
-		 * if(isDark) { IJ.setAutoThreshold(imp2, "MinError dark"); }else {
-		 * IJ.setAutoThreshold(imp2, "MinError dark"); }
-		 */
 
-		IJ.setRawThreshold(imp2, 4, 255, null);
-		IJ.run(imp2, "Convert to Mask", "");
+		int i = 6;
+		boolean detected = false;
+		double s = 0;
+		RoiManager rm = null;
+		ImagePlus impT;
+		ResultsTable rt = null;
+		double x = 0, y = 0;
+		while (i >= 3 && !detected) {
+			impT = imp2.duplicate();
 
-		imp2.setRoi(r);
-		IJ.run(imp2, "Clear Outside", "");
-		IJ.run(imp2, "Fill Holes", "");
-		IJ.run(imp2, "Erode", "");
-		IJ.run(imp2, "Analyze Particles...", "  circularity=0.0-1.00 add");
-		imp2.changes = false;
-		imp2.close();
-		return imp;
+			IJ.setRawThreshold(impT, i, 255, null);
 
-	}
+			IJ.run(impT, "Convert to Mask", "");
 
-	private ImagePlus detectImage(ImagePlus imp1) {
-		OvalRoi r = new OvalRoi(55, 45, 920, 920);
+			impT.setRoi(r);
+			IJ.run(impT, "Clear Outside", "");
+			IJ.run(impT, "Fill Holes", "");
+			IJ.run(impT, "Erode", "");
+			IJ.run(impT, "Analyze Particles...", "  circularity=0.0-1.00 add");
+			rm = RoiManager.getInstance();
+			Utils.keepBiggestROI(rm);
 
-		ImagePlus imp2 = imp1.duplicate();
-		imp2.hide();
-		ImagePlus imp = imp2.duplicate();
-
-		ImagePlus imp3 = imp2.duplicate();
-		ImagePlus imp4 = imp2.duplicate();
-		imp3.setRoi(3, 4, 93, 71);
-		ImageStatistics is = imp3.getStatistics();
-		imp3.deleteRoi();
-
-		ImageCalculator ic = new ImageCalculator();
-
-		if (is.mean < 2000) {
-			IJ.setAutoThreshold(imp3, "MaxEntropy dark");
-			IJ.run(imp3, "Convert to Mask", "");
-			imp3.setRoi(r);
-			IJ.setBackgroundColor(0, 0, 0);
-			IJ.run(imp3, "Clear Outside", "");
-
-			imp3.deleteRoi();
-			RoiManager rm = RoiManager.getInstance();
-			rm.setVisible(false);
-			// rm.select(0);
-			// rm.runCommand(imp3, "Delete");
-		} else {
-			IJ.setAutoThreshold(imp3, "MaxEntropy");
-			IJ.setAutoThreshold(imp4, "Default");
-			IJ.run(imp3, "Convert to Mask", "");
-			IJ.run(imp4, "Convert to Mask", "");
-			imp3.setRoi(r);
-			IJ.setBackgroundColor(0, 0, 0);
-			IJ.run(imp3, "Clear Outside", "");
-			imp4.setRoi(r);
-			IJ.run(imp4, "Clear Outside", "");
-
-			imp3.deleteRoi();
-			imp4.deleteRoi();
-			RoiManager rm = RoiManager.getInstance();
-			rm.setVisible(false);
-			// rm.select(0);
-			// rm.runCommand(imp3, "Delete");
-			// rm.runCommand(imp4, "Delete");
-			imp3 = ic.run("OR create", imp3, imp4);
-
-		}
-		/// Using the variance
-		// imp2.setRoi(r);
-		// imp2.deleteRoi();
-		IJ.run(imp2, "Variance...", "radius=19");
-		IJ.setAutoThreshold(imp2, "MinError dark");// MinError
-		IJ.run(imp2, "Convert to Mask", "");
-
-		// OvalRoi r1 = new OvalRoi(r.getXBase() + 20, r.getYBase() + 20,
-		// r.getFloatWidth() - 40, r.getFloatHeight() - 40);
-
-		imp2.setRoi(r);
-		IJ.setBackgroundColor(0, 0, 0);
-		IJ.run(imp2, "Clear Outside", "");
-
-		imp2.deleteRoi();
-		/*
-		 * rm = RoiManager.getInstance(); rm.select(0); rm.runCommand(imp2, "Delete");
-		 */
-
-		imp4 = ic.run("OR create", imp2, imp3);
-		IJ.run(imp4, "Fill Holes", "");
-		IJ.run(imp4, "Options...", "iterations=10 count=1 black do=Erode");
-
-		IJ.run(imp4, "Analyze Particles...", "  circularity=0.0-1.00 add");
-		imp3.show();
-		imp2.show();
-		imp4.changes = false;
-		imp4.close();
-		imp2.changes = false;
-		imp2.close();
-		imp3.changes = false;
-		imp3.close();
-		return imp;
-
-	}
-
-	private ImagePlus detect(String path, Roi r) {//
-		ImagePlus imp = IJ.openImage(path);
-
-		ImagePlus imp2 = IJ.getImage();
-		imp2.hide();
-		imp = imp2.duplicate();
-
-		ImagePlus imp3 = imp2.duplicate();
-		ImagePlus imp4 = imp2.duplicate();
-		imp3.setRoi(3, 4, 93, 71);
-		ImageStatistics is = imp3.getStatistics();
-		imp3.deleteRoi();
-
-		ImageCalculator ic = new ImageCalculator();
-
-		if (is.mean < 2000) {
-			IJ.setAutoThreshold(imp3, "MaxEntropy dark");
-			IJ.run(imp3, "Convert to Mask", "");
-			imp3.setRoi(r);
-			IJ.setBackgroundColor(0, 0, 0);
-			IJ.run(imp3, "Clear Outside", "");
-
-			imp3.deleteRoi();
-			RoiManager rm = RoiManager.getInstance();
-			rm.setVisible(false);
 			rm.select(0);
-			rm.runCommand(imp3, "Delete");
-		} else {
-			IJ.setAutoThreshold(imp3, "MaxEntropy");
-			IJ.setAutoThreshold(imp4, "Default");
-			IJ.run(imp3, "Convert to Mask", "");
-			IJ.run(imp4, "Convert to Mask", "");
-			imp3.setRoi(r);
-			IJ.setBackgroundColor(0, 0, 0);
-			IJ.run(imp3, "Clear Outside", "");
-			imp4.setRoi(r);
-			IJ.run(imp4, "Clear Outside", "");
+			rm.runCommand(impT, "Measure");
+			rt = ResultsTable.getResultsTable();
+			int n = rt.size();
 
-			imp3.deleteRoi();
-			imp4.deleteRoi();
-			RoiManager rm = RoiManager.getInstance();
-			rm.setVisible(false);
-			rm.select(0);
-			rm.runCommand(imp3, "Delete");
-			// rm.runCommand(imp4, "Delete");
-			imp3 = ic.run("OR create", imp3, imp4);
+			if (n != 1) {
 
-		}
+				
+				imp2.changes = false;
+				imp2.close();
+				imp3.changes = false;
+				imp3.close();
+				return imp;
+			}
 
-		/// Using the variance
-		// imp2.setRoi(r);
-		imp2.deleteRoi();
-		IJ.run(imp2, "Variance...", "radius=19");
-		IJ.setAutoThreshold(imp2, "MinError dark");// MinError
-		IJ.run(imp2, "Convert to Mask", "");
+			s = rt.getValue("Solidity", 0);
+			x = rt.getValue("X", 0);
+			y = rt.getValue("Y", 0);
 
-		OvalRoi r1 = new OvalRoi(r.getXBase() + 20, r.getYBase() + 20, r.getFloatWidth() - 40, r.getFloatHeight() - 40);
+			rt.reset();
+			if (WindowManager.getFrame("Results") != null) {
+				IJ.selectWindow("Results");
+				IJ.run("Close");
+			}
 
-		imp2.setRoi(r1);
-		IJ.setBackgroundColor(0, 0, 0);
-		IJ.run(imp2, "Clear Outside", "");
-
-		imp2.deleteRoi();
-		/*
-		 * rm = RoiManager.getInstance(); rm.select(0); rm.runCommand(imp2, "Delete");
-		 */
-
-		imp4 = ic.run("OR create", imp2, imp3);
-		IJ.run(imp4, "Fill Holes", "");
-		IJ.run(imp4, "Options...", "iterations=10 count=1 black do=Erode");
-
-		IJ.run(imp4, "Analyze Particles...", "  circularity=0.0-1.00 add");
-		imp3.show();
-		imp2.show();
-		imp4.changes = false;
-		imp4.close();
-		imp2.changes = false;
-		imp2.close();
-		imp3.changes = false;
-		imp3.close();
-		return imp;
-	}
-
-	protected static void keepBiggestROI(RoiManager rm) {
-		if (rm != null) {
-			Roi[] rois = rm.getRoisAsArray();
-
-			if (rois.length >= 1) {
-				rm.runCommand("Select All");
-				rm.runCommand("Delete");
-
-				Roi biggestROI = rois[0];
-
-				for (int i = 1; i < rois.length; i++) {
-
-					if (getArea(biggestROI.getPolygon()) < getArea(rois[i].getPolygon())) {
-
-						biggestROI = rois[i];
-					}
-
-				}
-//					IJ.showMessage(""+getArea(biggestROI.getPolygon()));
-				rm.addRoi(biggestROI);
-
+			// In case nothing is detected, we directly apply a threshold mechanism
+			impT.changes = false;
+			impT.close();
+			if (s > 0.5 && ((x > 350) && (x < 650) && (y > 350) && (y < 650))) {
+				detected = true;
+			} else {
+				i--;
 			}
 
 		}
-	}
 
-	protected static final double getArea(Polygon p) {
-		if (p == null)
-			return Double.NaN;
-		int carea = 0;
-		int iminus1;
-		for (int i = 0; i < p.npoints; i++) {
-			iminus1 = i - 1;
-			if (iminus1 < 0)
-				iminus1 = p.npoints - 1;
-			carea += (p.xpoints[i] + p.xpoints[iminus1]) * (p.ypoints[i] - p.ypoints[iminus1]);
+		if (s < 0.5) {
+			rm.runCommand("Delete");
+			if (isDark) {
+				IJ.setAutoThreshold(imp3, "Default dark");
+			} else {
+				IJ.setAutoThreshold(imp3, "Default");
+			}
+			IJ.run(imp3, "Convert to Mask", "");
+
+			imp3.setRoi(r);
+			IJ.run(imp3, "Clear Outside", "");
+			IJ.run(imp3, "Fill Holes", "");
+			IJ.run(imp3, "Erode", "");
+			IJ.run(imp3, "Analyze Particles...", "  circularity=0.0-1.00 add");
+
 		}
-		return (Math.abs(carea / 2.0));
+
+		rm = RoiManager.getInstance();
+		Utils.keepBiggestROI(rm);
+
+		rm.select(0);
+		rm.runCommand(imp3, "Measure");
+		rt = ResultsTable.getResultsTable();
+		int n = rt.size();
+
+		if (n != 1) {
+			imp2.changes = false;
+			imp2.close();
+			imp3.changes = false;
+			imp3.close();
+			return imp;
+		}
+
+		x = rt.getValue("X", 0);
+		y = rt.getValue("Y", 0);
+		rt.reset();
+		if (WindowManager.getFrame("Results") != null) {
+			IJ.selectWindow("Results");
+			IJ.run("Close");
+		}
+		if (!((x > 350) && (x < 650) && (y > 350) && (y < 650))) {
+
+			rm.runCommand("Delete");
+			// rm.addRoi(r);
+		}
+
+		imp3.changes = false;
+		imp3.close();
+
+		return imp;
+
 	}
 
 }
